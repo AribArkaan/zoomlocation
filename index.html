@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Peta Lokasi Bertingkat dengan GeoJSON</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            overscroll-behavior: none; 
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+            z-index: 1;
+            background-color: #e5e5e5;
+        }
+
+        /* --- UI INFO BOX MINIMALIS --- */
+        #info-box {
+            position: absolute;
+            top: 20px; 
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95); /* Latar putih bersih */
+            color: #333;
+            padding: 12px 20px;
+            border-radius: 12px;
+            z-index: 1000;
+            text-align: center;
+            pointer-events: none;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Bayangan halus */
+            width: 85%; 
+            max-width: 320px;
+            border: 1px solid #eee;
+        }
+
+        #info-box h3 {
+            margin: 0;
+            font-size: 16px; 
+            color: #22c55e; /* Warna hijau senada dengan garis peta */
+            font-weight: 600;
+            line-height: 1.3;
+        }
+
+        #info-box p {
+            margin: 6px 0 0 0;
+            font-size: 12px;
+            color: #666;
+            font-weight: 400;
+        }
+
+        /* --- CUSTOM TOMBOL ZOOM LEAFLET --- */
+        /* Memindahkan posisi ke kanan bawah */
+        .leaflet-bottom.leaflet-right {
+            margin-bottom: 20px;
+            margin-right: 15px;
+        }
+
+        /* Menghilangkan garis kotak bawaan Leaflet */
+        .leaflet-control-zoom {
+            border: none !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+            border-radius: 10px !important;
+            overflow: hidden;
+        }
+
+        /* Desain tombol + dan - */
+        .leaflet-control-zoom a {
+            width: 45px !important;
+            height: 45px !important;
+            line-height: 45px !important;
+            font-size: 22px !important;
+            color: #333 !important;
+            background-color: #ffffff !important;
+            border-bottom: 1px solid #f0f0f0 !important;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        /* Efek hover / saat disentuh */
+        .leaflet-control-zoom a:hover {
+            background-color: #f9f9f9 !important;
+            color: #22c55e !important;
+        }
+
+        /* Menghilangkan garis border pada tombol paling bawah */
+        .leaflet-control-zoom a:last-child {
+            border-bottom: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="info-box">
+        <h3 id="region-name">Memuat Peta...</h3>
+        <p id="instruction">Scroll / Cubit layar untuk Zoom</p>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // 1. Inisialisasi Peta
+        // Posisi zoom control diset ke 'bottomright' (kanan bawah)
+        var map = L.map('map', {
+            scrollWheelZoom: true, 
+            touchZoom: true, 
+            dragging: true,
+            zoomControl: false, // Matikan default dulu
+            maxZoom: 19 
+        }).setView([-6.914744, 107.609810], 8);
+
+        // Tambahkan zoom control secara manual di kanan bawah
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // 2. Layer Peta Dasar
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png?key=cb1_4pqw_1_1ac5a899816803e9a428c04f', {
+            maxZoom: 19, 
+            attribution: '© OpenStreetMap © CARTO'
+        }).addTo(map);
+
+        // 3. Konfigurasi Nama File GeoJSON
+        var geojsonFiles = [
+            "jawa_barat_32.geojson",
+            "kota_bandung_32.73.geojson",
+            "buahbatu_32.73.22.geojson",
+            "margasari_32.73.22.1002.geojson"
+        ];
+
+        var areaNames = [
+            "Provinsi Jawa Barat",
+            "Kota Bandung",
+            "Kecamatan Buahbatu",
+            "Kelurahan Margasari",
+            "Jl. Kiara Sari V (Tujuan)"
+        ];
+
+        var currentIndex = 0;
+        var regionNameElement = document.getElementById('region-name');
+        var instructionElement = document.getElementById('instruction');
+        var currentLayer = null;
+
+        var isProgrammaticZoom = false; 
+
+        // Warna garis boundary dibuat sedikit lebih tegas tapi tetap minimalis
+        var geoJsonStyle = {
+            color: "#22c55e",
+            weight: 2,
+            fillColor: "#22c55e",
+            fillOpacity: 0.1 // Dibuat lebih transparan agar peta tidak terlalu tertutup
+        };
+
+        async function loadGeoJSON(url) {
+            try {
+                var response = await fetch(url);
+                if (!response.ok) throw new Error("File tidak ditemukan");
+                return await response.json();
+            } catch (error) {
+                console.error("Gagal memuat: " + url, error);
+                return null;
+            }
+        }
+
+        async function drawArea(index, isInitialLoad = false, isManualZoom = false) {
+            if (currentLayer) {
+                map.removeLayer(currentLayer);
+            }
+
+            regionNameElement.innerText = areaNames[index];
+
+            if (index === 4) {
+                var finalCoords = [-6.9482751, 107.6448151]; 
+                
+                currentLayer = L.marker(finalCoords).addTo(map)
+                    .bindPopup("<b>Alamat Tujuan</b><br>Jl. Kiara Sari V")
+                    .openPopup();
+                
+                map.setView(finalCoords, 18);
+                instructionElement.innerText = "Cubit layar (Zoom Out) untuk lihat sekitar";
+                return;
+            }
+
+            var geojsonData = await loadGeoJSON(geojsonFiles[index]);
+            
+            if (geojsonData) {
+                currentLayer = L.geoJSON(geojsonData, {
+                    style: geoJsonStyle
+                }).addTo(map);
+
+                if (isInitialLoad) {
+                    isProgrammaticZoom = true; 
+                    map.fitBounds(currentLayer.getBounds(), { padding: [30, 30] });
+                    
+                    setTimeout(() => {
+                        isProgrammaticZoom = false;
+                    }, 500);
+                } 
+                else if (isManualZoom) {
+                    var centerPoint = currentLayer.getBounds().getCenter();
+                    
+                    map.panTo(centerPoint, {
+                        animate: true,
+                        duration: 0.5 
+                    });
+                }
+                
+                instructionElement.innerText = "Cubit/Scroll untuk Zoom In & Zoom Out";
+            }
+        }
+
+        drawArea(0, true, false);
+
+        map.on('zoomend', function () {
+            if (isProgrammaticZoom) return;
+
+            var currentZoom = map.getZoom();
+            var newIndex = currentIndex;
+            
+            if (currentIndex === 4 && currentZoom >= 17) {
+                return; 
+            }
+
+            if (currentZoom >= 10 && currentZoom < 13) {
+                newIndex = 1; 
+            } else if (currentZoom >= 13 && currentZoom < 15) {
+                newIndex = 2; 
+            } else if (currentZoom >= 15 && currentZoom < 17) {
+                newIndex = 3; 
+            } else if (currentZoom >= 17) {
+                newIndex = 4; 
+            } else if (currentZoom < 10) {
+                newIndex = 0;
+            }
+
+            if (newIndex !== currentIndex) {
+                currentIndex = newIndex;
+                drawArea(currentIndex, false, true); 
+            }
+        });
+    </script>
+
+</body>
+
+</html>
