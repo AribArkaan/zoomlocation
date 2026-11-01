@@ -144,7 +144,7 @@
             "Kota Bandung",
             "Kecamatan Buahbatu",
             "Kelurahan Margasari",
-            "Jl. Kiara Sari V (Tujuan)"
+            "Jl. Kiara Sari Raya No.50 (Tujuan)"
         ];
 
         var currentIndex = 0;
@@ -181,10 +181,10 @@
             regionNameElement.innerText = areaNames[index];
 
             if (index === 4) {
-                var finalCoords = [-6.9482751, 107.6448151]; 
+                var finalCoords = [-6.949488, 107.644510]; 
                 
                 currentLayer = L.marker(finalCoords).addTo(map)
-                    .bindPopup("<b>Alamat Tujuan</b><br>Jl. Kiara Sari V")
+                    .bindPopup("<b>Alamat Tujuan</b><br>Jl. Kiara Sari Raya No.50")
                     .openPopup();
                 
                 map.setView(finalCoords, 18);
